@@ -17,3 +17,6 @@ alias l='ls -CF'
 
 # prevent nano from adding newlines
 alias nano="nano --nonewlines"
+
+# git convenience aliases
+alias fpush="git push --force-with-lease"
