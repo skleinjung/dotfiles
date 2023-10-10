@@ -19,4 +19,5 @@ alias l='ls -CF'
 alias nano="nano --nonewlines"
 
 # git convenience aliases
+alias amend="git commit --amend --no-edit"
 alias fpush="git push --force-with-lease"
