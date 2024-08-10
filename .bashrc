@@ -141,8 +141,17 @@ __bash_prompt() {
 __bash_prompt
 export PROMPT_DIRTRIM=4
 
-sshEnvPath="$HOME/.ssh/environment"
+# activate NVM
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
 
+# Environment variable definitions
+if [ -f ~/.env ]; then
+    . ~/.env
+
+# start ONE ssh agent per login
+sshEnvPath="$HOME/.ssh/environment"
 ssh-add -l &>/dev/null;
 if [ "$?" == 2 ]; then
   test -r "${sshEnvPath}" && eval "$(<${sshEnvPath})"
