@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+
+tempDir=$(mktemp -d "${TMPDIR:-/tmp/}agent.XXXXXXXXXXXX")
+trap "rm -rf $tempDir" EXIT
+
+# Args:
+#   1: name of the ssh key secret shows "Passphrase" should be returned by the script
+#   2: Path to the temp dir to use.
+function create_askpass_script {
+  _sshKeySecretName=$1
+  _tempDir=$2
+
+  _scriptName=$(mktemp -t -p ${_tempDir} "askpass.XXXXXXXXXXXX")
+  echo "lpass show '${_sshKeySecretName}' --field=Passphrase" >> "${_scriptName}"
+  chmod +x "${_scriptName}"
+
+  if [[ ! -x $_scriptName ]]; then
+    echo "create_askpass_script: Created script does not exist or cannot be executed: '${_scriptName}'." >&2
+    return 1
+  fi
+
+  echo "${_scriptName}"
+}
+
+function check_ssh_agent {
+  ssh-add -l &>/dev/null;
+  if [ "$?" == 2 ]; then
+    return 1
+  fi
+}
+
+# Args:
+#   1: last pass username
+function login_to_lastpass {
+  _username=$1
+
+  if ! lpass status "${_username}" >/dev/null; then
+    if ! lpass login "${_username}" 2>/dev/null >/dev/null; then
+      echo "login_to_lastpass: User cancelled authentication." >&2 
+      return 1
+    fi
+  fi
+}
+
+# Args:
+#   1: name of the ssh key secret shows "Passphrase" should be returned by the script
+#   2: Path to the temp dir to use.
+function add_key_to_agent {
+  _sshKeySecretName=$1
+  _tempDir=$2
+
+  if [[ -z "$_sshKeySecretName" ]]; then
+    echo "add_key_to_agent: must provide an SSH key secret name [args=($1, $2, $3)]" 1>&2
+    return 1
+  fi
+  if [[ -z "$_tempDir" ]]; then
+    echo "add_key_to_agent: must provide a tempdir [args=($1, $2, $3)]" 1>&2
+    return 1
+  fi
+
+  _askPassScript=$(create_askpass_script $_sshKeySecretName $_tempDir)
+  if [[ $? != 0 ]]; then
+    echo "add_key_to_agent: Failed to create askpass script [args=($1, $2, $3)]" >&2
+    return 1
+  fi
+
+  lpass show "${_sshKeySecretName}" --field="Private Key" | \
+    SSH_ASKPASS="${_askPassScript}" SSH_ASKPASS_REQUIRE=force ssh-add -q -
+
+  if [[ $? != 0 ]]; then
+    echo "add_key_to_agent: Error while registering key with agent [args=($1, $2, $3)]" >&2
+    return 1
+  fi
+}
+
+declare -a sshKeySecretNames=(
+  "automation\\user/ssh_key_devcontainer"
+)
+username=${LASTPASS_USERNAME}
+
+check_ssh_agent || {
+  echo "register-ssh-keys: Failed. There is no active ssh-agent." 1>&2 
+  exit 1
+}
+
+login_to_lastpass $username || {
+  echo "register-ssh-keys: Failed. Unable to login to LastPass." 1>&2 
+  exit 1
+}
+
+for sshKeySecretName in "${sshKeySecretNames[@]}"
+do
+  if add_key_to_agent "${sshKeySecretName}" "${tempDir}"; then
+    echo "register-ssh-keys: Successfully registered key: '${sshKeySecretName}'"
+  else 
+    echo "register-ssh-keys: Failed to add key to agent: '${sshKeySecretName}'." 1>&2
+  fi
+done

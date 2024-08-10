@@ -162,3 +162,6 @@ if [ "$?" == 2 ]; then
     eval "$(<${sshEnvPath})"
   fi
 fi
+
+# setup shadowing path
+export PATH=${HOME}/bin/${HOSTNAME}:${HOME}/bin:${PATH}
