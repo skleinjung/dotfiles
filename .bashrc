@@ -149,6 +149,7 @@ export NVM_DIR="$HOME/.nvm"
 # Environment variable definitions
 if [ -f ~/.env ]; then
     . ~/.env
+fi
 
 # start ONE ssh agent per login
 sshEnvPath="$HOME/.ssh/environment"
