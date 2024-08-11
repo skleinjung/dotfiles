@@ -5,7 +5,7 @@
 ```
 cd ~
 git init
-git remote add origin git@git.sr.ht:~sircmpwn/dotfiles
+git remote add origin https://github.com/skleinjung/dotfiles.git
 git fetch
 git checkout -f master
 ```
