@@ -11,7 +11,7 @@ function create_askpass_script {
   _tempDir=$2
 
   _scriptName=$(mktemp -t -p ${_tempDir} "askpass.XXXXXXXXXXXX")
-  echo "lpass show '${_sshKeySecretName}' --field=Passphrase" >> "${_scriptName}"
+  echo "fetch-secret --key '${_sshKeySecretName}' --property Passphrase" >> "${_scriptName}"
   chmod +x "${_scriptName}"
 
   if [[ ! -x $_scriptName ]]; then
@@ -64,7 +64,7 @@ function add_key_to_agent {
     return 1
   fi
 
-  lpass show "${_sshKeySecretName}" --field="Private Key" | \
+  fetch-secret --key "${_sshKeySecretName}" --property "Private Key" | \
     SSH_ASKPASS="${_askPassScript}" SSH_ASKPASS_REQUIRE=force ssh-add -q -
 
   if [[ $? != 0 ]]; then
@@ -74,7 +74,7 @@ function add_key_to_agent {
 }
 
 declare -a sshKeySecretNames=(
-  "automation\\user/ssh_key_devcontainer"
+  "automation/hosts/${HOSTNAME}/ssh-key"
 )
 username=${LASTPASS_USERNAME}
 
