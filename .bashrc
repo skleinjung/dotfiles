@@ -151,6 +151,12 @@ if [ -f ~/.env ]; then
     . ~/.env
 fi
 
+# set git config
+if command -v git &> /dev/null; then
+  git config --global user.email "sean@thrashplay.com"
+  git config --global user.name "Sean Kleinjung"
+fi
+
 # start ONE ssh agent per login
 sshEnvPath="$HOME/.ssh/environment"
 ssh-add -l &>/dev/null;
