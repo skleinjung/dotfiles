@@ -74,7 +74,7 @@ function add_key_to_agent {
 }
 
 declare -a sshKeySecretNames=(
-  "automation/hosts/${HOSTNAME}/ssh-key"
+  "__vault/hosts/${HOSTNAME}/ssh-key"
 )
 username=${LASTPASS_USERNAME}
 
