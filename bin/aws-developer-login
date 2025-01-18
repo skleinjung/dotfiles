@@ -1,3 +1,0 @@
-#!/usr/bin/env sh
-
-aws sso login --profile twin-digital-developer

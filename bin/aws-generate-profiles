@@ -1,0 +1,74 @@
+
+#!/usr/bin/env bash
+
+# Configuration
+SSO_SESSION="twin-digital"
+ROLE="deployer-access"
+REGION="us-east-1"
+OUTPUT_FILE="/home/$USER/.aws/config"
+
+bootstrap() {
+  echo "Refreshing SSO session for default profile."
+  > "$OUTPUT_FILE" # Clear the output file if it exists
+  echo "[sso-session twin-digital]" >> "$OUTPUT_FILE"
+  echo "sso_start_url = https://d-9067c161a5.awsapps.com/start/" >> "$OUTPUT_FILE"
+  echo "sso_region = us-east-1" >> "$OUTPUT_FILE"
+  echo "sso_registration_scopes = sso:account:access" >> "$OUTPUT_FILE"
+  echo >> "$OUTPUT_FILE" # Blank line for separation
+  echo "[default]" >> "$OUTPUT_FILE"
+  echo "sso_session = ${SSO_SESSION}" >> "$OUTPUT_FILE"
+  echo "sso_account_id = 253490790167" >> "$OUTPUT_FILE"
+  echo "sso_role_name = developer-tools-access" >> "$OUTPUT_FILE"
+  echo "region = ${REGION}" >> "$OUTPUT_FILE"
+
+  aws-refresh-sso default
+}
+
+bootstrap
+
+# Fetch all accounts with STATUS='ACTIVE'
+echo "Fetching active accounts from AWS Organizations..."
+accounts=$(aws organizations list-accounts --query "Accounts[?Status=='ACTIVE'].Id" --output text)
+
+if [[ -z "$accounts" ]]; then
+  echo "No active accounts found or insufficient permissions."
+  echo "You may need to set the AwS_PROFILE variable when invoking this script."
+  exit 1
+fi
+
+# Generate the AWS config file
+echo "Generating AWS CLI profiles..."
+> "$OUTPUT_FILE" # Clear the output file if it exists
+
+# write out shared SSO session config
+echo "[sso-session twin-digital]" >> "$OUTPUT_FILE"
+echo "sso_start_url = https://d-9067c161a5.awsapps.com/start/" >> "$OUTPUT_FILE"
+echo "sso_region = us-east-1" >> "$OUTPUT_FILE"
+echo "sso_registration_scopes = sso:account:access" >> "$OUTPUT_FILE"
+echo >> "$OUTPUT_FILE" # Blank line for separation
+
+echo "[default]" >> "$OUTPUT_FILE"
+echo "sso_session = ${SSO_SESSION}" >> "$OUTPUT_FILE"
+echo "sso_account_id = 253490790167" >> "$OUTPUT_FILE"
+echo "sso_role_name = developer-tools-access" >> "$OUTPUT_FILE"
+echo "region = ${REGION}" >> "$OUTPUT_FILE"
+echo >> "$OUTPUT_FILE" # Blank line for separation
+
+echo "[profile organization-management]" >> "$OUTPUT_FILE"
+echo "sso_session = twin-digital" >> "$OUTPUT_FILE"
+echo "sso_account_id = 869935081718" >> "$OUTPUT_FILE"
+echo "sso_role_name = org-management-deployer-access" >> "$OUTPUT_FILE"
+echo "region = us-east-1" >> "$OUTPUT_FILE"
+echo >> "$OUTPUT_FILE" # Blank line for separation
+
+# write out admin/developer profiles for each account
+for account_id in $accounts; do
+  echo "[profile developer-${account_id}]" >> "$OUTPUT_FILE"
+  echo "sso_session = ${SSO_SESSION}" >> "$OUTPUT_FILE"
+  echo "sso_account_id = ${account_id}" >> "$OUTPUT_FILE"
+  echo "sso_role_name = ${ROLE}" >> "$OUTPUT_FILE"
+  echo "region = ${REGION}" >> "$OUTPUT_FILE"
+  echo >> "$OUTPUT_FILE" # Blank line for separation
+done
+
+echo "AWS CLI profiles written to ${OUTPUT_FILE}."

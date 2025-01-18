@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+
+# Function to check if a profile has valid credentials
+check_profile_credentials() {
+  local profile="$1"
+
+  # Try to get the caller identity using the profile
+  aws sts get-caller-identity --profile "$profile" &> /dev/null
+
+  if [[ $? -eq 0 ]]; then
+    echo "Profile '$profile' is already authenticated."
+    return 0
+  else
+    echo "Profile '$profile' does not have valid credentials."
+    return 1
+  fi
+}
+
+# Function to refresh the profile credentials
+refresh_profile_credentials() {
+  local profile="$1"
+
+  echo "Refreshing credentials for profile '$profile'..."
+  aws sso login --profile "$profile"
+
+  if [[ $? -eq 0 ]]; then
+    echo "Successfully refreshed credentials for profile '$profile'."
+  else
+    echo "Failed to refresh credentials for profile '$profile'."
+    exit 1
+  fi
+}
+
+# Main script logic
+if [[ -z "$1" ]]; then
+  echo "Usage: $0 <sso-profile-name>"
+  exit 1
+fi
+
+profile_name="$1"
+
+# Check credentials and refresh if needed
+if ! check_profile_credentials "$profile_name"; then
+  refresh_profile_credentials "$profile_name"
+fi
