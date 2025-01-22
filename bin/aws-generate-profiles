@@ -8,6 +8,8 @@ REGION="us-east-1"
 OUTPUT_FILE="/home/$USER/.aws/config"
 
 bootstrap() {
+  mkdir -p "$(dirname ${OUTPUT_FILE})"
+
   echo "Refreshing SSO session for default profile."
   > "$OUTPUT_FILE" # Clear the output file if it exists
   echo "[sso-session twin-digital]" >> "$OUTPUT_FILE"
