@@ -63,6 +63,14 @@ echo "sso_role_name = org-management-deployer-access" >> "$OUTPUT_FILE"
 echo "region = us-east-1" >> "$OUTPUT_FILE"
 echo >> "$OUTPUT_FILE" # Blank line for separation
 
+# 084828575849 = sean-01 sandbox
+echo "[profile amplify]" >> "$OUTPUT_FILE"
+echo "source_profile = developer-084828575849" >> "$OUTPUT_FILE"
+echo "region = us-east-1" >> "$OUTPUT_FILE"
+echo "role_arn = arn:aws:iam::084828575849:role/deployer" >> "$OUTPUT_FILE"
+echo "role_session_name = amplify_local" >> "$OUTPUT_FILE"
+echo >> "$OUTPUT_FILE" # Blank line for separation
+
 # write out admin/developer profiles for each account
 for account_id in $accounts; do
   echo "[profile developer-${account_id}]" >> "$OUTPUT_FILE"
