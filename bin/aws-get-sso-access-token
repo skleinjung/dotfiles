@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+#
+# Usage:
+#   get-sso-access-token <SSO_START_URL>
+#
+# Prints the SSO access token to stdout for the *most recent* SSO cache file
+# whose "startUrl" property matches <SSO_START_URL>. Exits with error if none found.
+
+set -euo pipefail
+
+SSO_START_URL="${1:-}"
+
+# 1. Validate input
+if [[ -z "$SSO_START_URL" ]]; then
+  echo "Usage: $0 <SSO_START_URL>" >&2
+  exit 1
+fi
+
+# 2. Where AWS CLI v2 stores SSO token cache files
+SSO_CACHE_DIR="$HOME/.aws/sso/cache"
+
+# 3. Find all JSON files under SSO_CACHE_DIR whose "startUrl" property matches
+#    the provided SSO_START_URL. We'll use 'jq' in a loop to do an exact match.
+
+# Collect matching files into an array
+MATCHING_FILES=()
+shopt -s nullglob
+for f in "$SSO_CACHE_DIR"/*.json; do
+  # Check if the "startUrl" field in $f matches $SSO_START_URL
+  current_url="$(jq -r '.startUrl // empty' "$f" 2>/dev/null || true)"
+  if [[ "$current_url" == "$SSO_START_URL" ]]; then
+    MATCHING_FILES+=("$f")
+  fi
+done
+shopt -u nullglob
+
+# 4. If there are no matching files, exit with an error
+if [[ ${#MATCHING_FILES[@]} -eq 0 ]]; then
+  echo "No SSO cache files found matching startUrl=$SSO_START_URL" >&2
+  exit 1
+fi
+
+# 5. Find the most recently modified among the matching files
+#    We'll do this by comparing modification timestamps.
+LATEST_FILE=""
+LATEST_MOD_TIME=0
+
+for file in "${MATCHING_FILES[@]}"; do
+  # "stat -c %Y" works on Linux. macOS/BSD uses "stat -f %m".
+  # We'll do a small check for portability:
+  if stat --version &>/dev/null; then
+    # GNU stat
+    mod_time=$(stat -c "%Y" "$file" 2>/dev/null || echo 0)
+  else
+    # BSD / macOS stat
+    mod_time=$(stat -f "%m" "$file" 2>/dev/null || echo 0)
+  fi
+
+  if [[ $mod_time -gt $LATEST_MOD_TIME ]]; then
+    LATEST_MOD_TIME=$mod_time
+    LATEST_FILE=$file
+  fi
+done
+
+# 6. Extract the accessToken from the latest file
+ACCESS_TOKEN="$(jq -r '.accessToken // empty' "$LATEST_FILE" 2>/dev/null || true)"
+
+if [[ -z "$ACCESS_TOKEN" || "$ACCESS_TOKEN" == "null" ]]; then
+  echo "No valid accessToken found in $LATEST_FILE" >&2
+  exit 1
+fi
+
+# 7. Print token to stdout
+echo "$ACCESS_TOKEN"
