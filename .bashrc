@@ -172,3 +172,4 @@ fi
 
 # setup shadowing path
 export PATH=${HOME}/bin/${HOSTNAME}:${HOME}/bin:${PATH}
+PATH=~/.console-ninja/.bin:$PATH
