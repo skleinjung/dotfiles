@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ $# -lt 1 ]; then
+  echo "Usage: invoke-node-cli path/to/script.[js|ts] [args…]"
+  exit 1
+fi
+
+# Remember Original CWD
+ORIGINAL_CWD="$(pwd)"
+
+# Resolve the script path
+SCRIPT="$1"; shift
+SCRIPT_PATH="$(realpath "$SCRIPT")"
+if [ ! -f "$SCRIPT_PATH" ]; then
+  echo "Error: script not found: $SCRIPT"
+  exit 1
+fi
+
+# Find nearest package.json above the script
+PKG_DIR="$(dirname "$SCRIPT_PATH")"
+while [ ! -f "$PKG_DIR/package.json" ]; do
+  PKG_DIR="$(dirname "$PKG_DIR")"
+  if [ "$PKG_DIR" = "/" ]; then
+    echo "Error: no package.json found above $SCRIPT_PATH"
+    exit 1
+  fi
+done
+
+LOCK="$PKG_DIR/package-lock.json"
+HASH_FILE="$PKG_DIR/.last-lock-hash"
+
+# Install deps exactly per lockfile, only if needed:
+# - package-lock.json has changed since our last install
+# - no node_modules
+# - no hash of last installed lock file
+if [[ ! -d "$PKG_DIR/node_modules" || ! -f "$HASH_FILE" ]] || ! grep -qx "$(sha1sum "$LOCK" | cut -d' ' -f1)" "$HASH_FILE"; then
+  (
+    cd "$PKG_DIR"
+    echo "🔄 Installing/updating dependencies…"
+    npm ci --prefer-offline --no-audit --no-fund --no-progress --loglevel=error > /dev/null || {
+      echo "❌ npm ci failed!" >&2
+      exit 1
+    }
+    sha1sum "$LOCK" | cut -d' ' -f1 > "$HASH_FILE"
+  )
+fi
+
+# Back to original CWD
+cd "$ORIGINAL_CWD"
+
+# Decide interpreter
+ext="${SCRIPT_PATH##*.}"
+BIN_DIR="$PKG_DIR/node_modules/.bin"
+
+if [[ "$ext" == "ts" ]]; then
+  # Get node version as a semver string
+  NODE_VERSION="$(node --version | sed 's/^v//')"
+
+  # Function to compare versions using sort -V
+  version_ge() {
+    [ "$(printf '%s\n' "$1" "$2" | sort -V | head -n1)" = "$2" ]
+  }
+
+  if version_ge "$NODE_VERSION" "22.6.0"; then
+    INTERP="node"
+    FLAGS=(--experimental-strip-types --no-warnings=ExperimentalWarning)
+  else
+    INTERP="$BIN_DIR/tsx"
+    if [ ! -x "$INTERP" ]; then
+      echo "Error: tsx not found in $BIN_DIR. Please install it as a dev dependency." >&2
+      exit 1
+    fi
+    FLAGS=()
+  fi
+
+elif [[ "$ext" == "js" ]]; then
+  INTERP="node"
+  FLAGS=()
+else
+  echo "Error: unsupported extension '.$ext' (only .js and .ts)" >&2
+  exit 1
+fi
+
+exec "$INTERP" "${FLAGS[@]}" "$SCRIPT_PATH" "$@"
