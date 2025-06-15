@@ -1,17 +1,62 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
-# Define your orgs here
-declare -A ORGS
-# Value: start-url|region|profile-name|default-profile-account-id|default-profile-role-name
-ORGS["twin-digital"]="https://d-9067c161a5.awsapps.com/start/|us-east-1|twin-digital-login"
-ORGS["pegasus"]="https://d-9a67674f2d.awsapps.com/start/|us-east-2|pegasus-login"
+# --------- Configuration file ---------
+XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+CONFIG_FILE="$XDG_CONFIG_HOME/auto-sso/config.yaml"
 
-# other config
+if [[ ! -f "$CONFIG_FILE" ]]; then
+  echo "❌ Config file not found: $CONFIG_FILE" >&2
+  exit 1
+fi
+
+# yq is required to parse the YAML
+if ! command -v yq &>/dev/null; then
+  echo "❌ yq is required but not installed. Please 'brew install yq' or equivalent." >&2
+  exit 1
+fi
+
+# --------- Defaults & validation ---------
+# workers: default 4
+WORKERS=$(yq e '.workers // 4' "$CONFIG_FILE")
+if ! [[ "$WORKERS" =~ ^[0-9]+$ ]]; then
+  echo "❌ Invalid 'workers' value in config: $WORKERS" >&2
+  exit 1
+fi
+
+# staticConfig: default empty
+STATIC_CONFIG=$(yq e '.staticConfig // ""' "$CONFIG_FILE")
+
+# ssoSessions must be a non-empty list
+NUM_SESSIONS=$(yq e '.ssoSessions | length' "$CONFIG_FILE")
+if [[ "$NUM_SESSIONS" -lt 1 ]]; then
+  echo "❌ 'ssoSessions' must be a non-empty list in $CONFIG_FILE" >&2
+  exit 1
+fi
+
+# --------- Build SSO_SESSIONS mapping ---------
+declare -A SSO_SESSIONS=()
+for idx in $(seq 0 $((NUM_SESSIONS-1))); do
+  name=$(yq e ".ssoSessions[$idx].name" "$CONFIG_FILE")
+  start_url=$(yq e ".ssoSessions[$idx].startUrl" "$CONFIG_FILE")
+  region=$(yq e ".ssoSessions[$idx].region // \"us-east-1\"" "$CONFIG_FILE")
+
+  # Validate required fields
+  if [[ -z "$name" || "$name" == "null" ]]; then
+    echo "❌ Missing 'name' for ssoSessions[$idx]" >&2
+    exit 1
+  fi
+  if [[ -z "$start_url" || "$start_url" == "null" ]]; then
+    echo "❌ Missing 'startUrl' for ssoSessions[$idx]" >&2
+    exit 1
+  fi
+
+  # Session name → "startUrl|region|loginProfileName"
+  SSO_SESSIONS["$name"]="$start_url|$region|${name}-auto-sso"
+done
+
+# --------- AWS Config files ---------
 OUTPUT_FILE="$HOME/.aws/config"
-CONFIG_STATIC_FILE="$HOME/.aws/config-static"
-PARALLEL_JOBS=4
-
-# Start with a clean config file
 mkdir -p "$(dirname "$OUTPUT_FILE")"
 > "$OUTPUT_FILE"
 
@@ -19,102 +64,98 @@ mkdir -p "$(dirname "$OUTPUT_FILE")"
 # Write [sso-session] blocks
 # ------------------------
 echo "📝 Writing sso-session blocks..."
-for session_name in "${!ORGS[@]}"; do
-  IFS="|" read -r sso_url sso_region default_profile default_account_id default_role <<< "${ORGS[$session_name]}"
-
-  cat <<EOF >> "$OUTPUT_FILE"
-[sso-session ${session_name}]
-sso_start_url = ${sso_url}
-sso_region = ${sso_region}
+for session in "${!SSO_SESSIONS[@]}"; do
+  IFS='|' read -r url region loginProfile <<<"${SSO_SESSIONS[$session]}"
+  cat <<EOF >>"$OUTPUT_FILE"
+[sso-session $session]
+sso_start_url = $url
+sso_region = $region
 sso_registration_scopes = sso:account:access
 
 EOF
 done
 
 # ------------------------
-# Write default profiles for each org
+# Write default profiles for each org (only used to bootstrap the other profiles)
 # ------------------------
-echo "📝 Writing default profile blocks..."
-for session_name in "${!ORGS[@]}"; do
-  IFS="|" read -r _ sso_region default_profile default_account_id default_role <<< "${ORGS[$session_name]}"
-
-  cat <<EOF >> "$OUTPUT_FILE"
-[profile ${default_profile}]
-sso_session = ${session_name}
+echo "📝 Writing bootstrap profiles..."
+echo "# >>> BEGIN AUTO-SSO >>>" >> "$OUTPUT_FILE"
+for session in "${!SSO_SESSIONS[@]}"; do
+  IFS='|' read -r _ _ loginProfile <<<"${SSO_SESSIONS[$session]}"
+  cat <<EOF >>"$OUTPUT_FILE"
+[profile $loginProfile]
+sso_session = $session
 
 EOF
 done
+echo "# <<< END AUTO-SSO <<<" >> "$OUTPUT_FILE"
 
 # ------------------------
-# Append config-static if it exists
+# Append any user-provided staticConfig YAML block
 # ------------------------
-if [[ -f "$CONFIG_STATIC_FILE" ]]; then
-  echo "📝 Copying static config from $CONFIG_STATIC_FILE"
-  cat "$CONFIG_STATIC_FILE" >> "$OUTPUT_FILE"
-  echo "" >> "$OUTPUT_FILE"
-else
-  echo "📝 No static config found at $CONFIG_STATIC_FILE"
+if [[ -n "$STATIC_CONFIG" && "$STATIC_CONFIG" != "null" ]]; then
+  echo "📝 Appending staticConfig..."
+  printf "%s
+
+" "$STATIC_CONFIG" >>"$OUTPUT_FILE"
 fi
 
 # ------------------------
 # Refresh and enumerate profiles dynamically
 # ------------------------
-for session_name in "${!ORGS[@]}"; do
-  IFS="|" read -r sso_url sso_region static_profile <<< "${ORGS[$session_name]}"
+for session in "${!SSO_SESSIONS[@]}"; do
+  IFS='|' read -r url region loginProfile <<<"${SSO_SESSIONS[$session]}"
 
   echo
-  echo "🔐 Logging in for $session_name (via profile: $static_profile)..."
-  aws-refresh-sso "$static_profile" || exit 1
+  echo "🔐 Logging in for '$session' via profile '$loginProfile'..."
+  aws-refresh-sso "$loginProfile"
 
-  echo "🔑 Getting access token..."
-  SSO_ACCESS_TOKEN="$(aws-get-sso-access-token "${sso_url}")"
-  if [[ -z "$SSO_ACCESS_TOKEN" ]]; then
-    echo "❌ Failed to get SSO token for $session_name"
-    continue
-  fi
+  echo "🔑 Fetching access token..."
+  SSO_TOKEN=$(aws-get-sso-access-token "$url")
 
-  echo "📇 Listing accounts for $session_name..."
+  echo "📇 Listing accounts..."
   ACCOUNTS=$(aws sso list-accounts \
-    --region "$sso_region" \
-    --access-token "$SSO_ACCESS_TOKEN" \
-    --query "accountList[].accountId" \
+    --region "$region" \
+    --access-token "$SSO_TOKEN" \
+    --query 'accountList[].accountId' \
     --output text)
 
-  # export so bash -c can see them
-  export SSO_ACCESS_TOKEN sso_region session_name OUTPUT_FILE
+  # export for child shells
+  export SSO_TOKEN SSO_REGION="$region" SESSION_NAME="$session" OUTPUT_FILE
 
-  # produce lines "ACCOUNT_ID ROLE" in parallel
-  printf "%s\n" $ACCOUNTS | \
-    xargs -P"$PARALLEL_JOBS" -I{} bash -c '
-      # note: $1 is the account ID substituted by xargs
+  # Parallelize per-account role lookups
+  printf "%s
+" $ACCOUNTS | \
+    xargs -P"$WORKERS" -I{} bash -c '
       acct="$1"
-      # list roles for that account
       aws sso list-account-roles \
-        --access-token "$SSO_ACCESS_TOKEN" \
-        --region       "$sso_region" \
-        --account-id   "$acct" \
-        --query        "roleList[].roleName" \
-        --output       text \
+        --region "$SSO_REGION" \
+        --access-token "$SSO_TOKEN" \
+        --account-id "$acct" \
+        --query "roleList[].roleName" \
+        --output text \
       | tr "\t" "\n" \
       | sed "s|^|$acct |"
     ' _ {} | while read -r ACCOUNT_ID ROLE; do
-    # skip the bootstrap/default if you want
-    if [[ "$ACCOUNT_ID" == "$DEFAULT_ACCOUNT" && "$ROLE" == "$DEFAULT_ROLE" ]]; then
-      continue
-    fi
 
-    PROFILE_NAME="${ACCOUNT_ID}-${ROLE}"
-    echo "    ➕ Writing profile: [$PROFILE_NAME]"
+      PROFILE_NAME="${ACCOUNT_ID}-${ROLE}"
+      echo "    ➕ Writing profile [$PROFILE_NAME]"
 
-    cat <<EOF >> "$OUTPUT_FILE"
-[profile ${PROFILE_NAME}]
-sso_session    = ${session_name}
-sso_account_id = ${ACCOUNT_ID}
-sso_role_name  = ${ROLE}
-region         = ${sso_region}
+      cat <<EOF >>"$OUTPUT_FILE"
+[profile $PROFILE_NAME]
+sso_session    = $SESSION_NAME
+sso_account_id = $ACCOUNT_ID
+sso_role_name  = $ROLE
+region         = $SSO_REGION
 
 EOF
-  done
+    done
 done
 
-echo "✅ Finished writing AWS config to $OUTPUT_FILE"
+echo
+echo "🧹 Cleaning up auto-SSO profiles..."
+sed -i.bak '/^# >>> BEGIN AUTO-SSO >>>/,/^# <<< END AUTO-SSO <</d' $OUTPUT_FILE
+rm -f "${OUTPUT_FILE}.bak"
+
+echo
+echo "✅ AWS config written to $OUTPUT_FILE"
