@@ -62,6 +62,29 @@ for file in "${MATCHING_FILES[@]}"; do
   fi
 done
 
+# 5.5. Check expiration
+EXPIRES_AT=$(jq -r '.expiresAt // empty' "$LATEST_FILE" 2>/dev/null || true)
+if [[ -z "$EXPIRES_AT" ]]; then
+  echo "No expiresAt found in $LATEST_FILE" >&2
+  exit 1
+fi
+
+# Convert to epoch (handles GNU/Linux or macOS date)
+if date --version &>/dev/null; then
+  # GNU date
+  EXPIRES_EPOCH=$(date -d "$EXPIRES_AT" +%s 2>/dev/null || echo 0)
+else
+  # BSD/macOS date
+  EXPIRES_EPOCH=$(date -jf "%Y-%m-%dT%H:%M:%S%z" "$EXPIRES_AT" +%s 2>/dev/null || echo 0)
+fi
+
+NOW_EPOCH=$(date +%s)
+
+if [[ "$EXPIRES_EPOCH" -le "$NOW_EPOCH" ]]; then
+  echo "SSO token in $LATEST_FILE is expired (expired at $EXPIRES_AT)" >&2
+  exit 1
+fi
+
 # 6. Extract the accessToken from the latest file
 ACCESS_TOKEN="$(jq -r '.accessToken // empty' "$LATEST_FILE" 2>/dev/null || true)"
 

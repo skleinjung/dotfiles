@@ -1,45 +1,58 @@
 #!/usr/bin/env bash
 
-# Function to check if a profile has valid credentials
-check_profile_credentials() {
-  local profile="$1"
+# Refresh AWS SSO session for a given profile, if needed.
+# Usage: aws-refresh-sso <profile-name>
 
-  # Try to get the caller identity using the profile
-  aws sts get-caller-identity --profile "$profile" &> /dev/null
+set -euo pipefail
 
-  if [[ $? -eq 0 ]]; then
-    echo "Profile '$profile' is already authenticated."
-    return 0
-  else
-    echo "Profile '$profile' does not have valid credentials."
-    return 1
-  fi
+CONFIG_FILE="$HOME/.aws/config"
+
+# we cannot use `aws configure get` to read `sso-session` values, so we use a custom `get_config_value` helper
+# see: https://github.com/aws/aws-cli/issues/8730
+# Usage: get_config_value "<section-name>" "<key>"
+# Example: get_config_value "sso-session twin-digital" "sso_start_url"
+get_config_value() {
+  local section="$1" key="$2"
+  awk -v sec="[$section]" -v key="$key" '
+    $0 == sec        { in_sec=1; next }
+    /^\[/ && in_sec  { in_sec=0 }
+    in_sec && $1==key {
+      sub(/^[^=]+=[ \t]*/, "")
+      print
+      exit
+    }
+  ' "$CONFIG_FILE"
 }
 
-# Function to refresh the profile credentials
-refresh_profile_credentials() {
-  local profile="$1"
+profile_name="${1:-}"
 
-  echo "Refreshing credentials for profile '$profile'..."
-  aws sso login --profile "$profile"
-
-  if [[ $? -eq 0 ]]; then
-    echo "Successfully refreshed credentials for profile '$profile'."
-  else
-    echo "Failed to refresh credentials for profile '$profile'."
-    exit 1
-  fi
-}
-
-# Main script logic
-if [[ -z "$1" ]]; then
-  echo "Usage: $0 <sso-profile-name>"
+if [[ -z "$profile_name" ]]; then
+  echo "Usage: $0 <sso-profile-name>" >&2
   exit 1
 fi
 
-profile_name="$1"
+# Resolve sso_start_url from the profile by looking up the associated sso_session block
+sso_session=$(aws configure get profile."$profile_name".sso_session)
+if [[ -z "$sso_session" ]]; then
+  echo "❌ Profile '$profile_name' does not define an sso_session." >&2
+  exit 1
+fi
 
-# Check credentials and refresh if needed
-if ! check_profile_credentials "$profile_name"; then
-  refresh_profile_credentials "$profile_name"
+# we cannot use `aws configure get` to read `sso-session` values, so we use a custom `get_config_value` helper
+# see: https://github.com/aws/aws-cli/issues/8730
+sso_start_url=$(get_config_value "sso-session $sso_session" "sso_start_url")
+if [[ -z "$sso_start_url" ]]; then
+  echo "❌ sso-session '$sso_session' has no 'sso_start_url' defined." >&2
+  exit 1
+fi
+
+echo "🔍 Checking SSO token for session '$sso_session' (start URL: $sso_start_url)"
+
+# Try to get the SSO token using your helper
+if aws-get-sso-access-token "$sso_start_url" &>/dev/null; then
+  echo "✅ Profile '$profile_name' is already authenticated."
+else
+  echo "🔁 SSO token missing or expired. Logging in for '$profile_name'..."
+  aws sso login --profile "$profile_name"
+  echo "✅ Refreshed SSO credentials for '$profile_name'."
 fi

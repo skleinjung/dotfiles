@@ -1,108 +1,120 @@
 #!/usr/bin/env bash
 
-# -----------------------------------------------------
-# Configuration: Adjust these for your environment
-# -----------------------------------------------------
-SSO_START_URL="https://d-9067c161a5.awsapps.com/start/"
-SSO_REGION="us-east-1"
-SSO_SESSION_NAME="twin-digital"
+# Define your orgs here
+declare -A ORGS
+# Value: start-url|region|profile-name|default-profile-account-id|default-profile-role-name
+ORGS["twin-digital"]="https://d-9067c161a5.awsapps.com/start/|us-east-1|twin-digital-login"
+ORGS["pegasus"]="https://d-9a67674f2d.awsapps.com/start/|us-east-2|pegasus-login"
+
+# other config
 OUTPUT_FILE="$HOME/.aws/config"
 CONFIG_STATIC_FILE="$HOME/.aws/config-static"
+PARALLEL_JOBS=4
 
-# -----------------------------------------------------
-# 1. Ensure user is logged into SSO via a valid profile
-#    We'll assume "default" is an SSO-based profile.
-#    If you prefer a different named profile, change it
-#    below and also adjust your config generation.
-# -----------------------------------------------------
-echo "Logging into AWS SSO using the 'default' profile..."
-aws-refresh-sso "default"
-
-# -----------------------------------------------------
-# 2. Prepare ~/.aws/config by writing the [sso-session] block
-#    and any static profiles
-# -----------------------------------------------------
+# Start with a clean config file
 mkdir -p "$(dirname "$OUTPUT_FILE")"
-> "$OUTPUT_FILE"  # Clear existing file
+> "$OUTPUT_FILE"
 
-cat <<EOF >> "$OUTPUT_FILE"
-[sso-session ${SSO_SESSION_NAME}]
-sso_start_url = ${SSO_START_URL}
-sso_region = ${SSO_REGION}
+# ------------------------
+# Write [sso-session] blocks
+# ------------------------
+echo "📝 Writing sso-session blocks..."
+for session_name in "${!ORGS[@]}"; do
+  IFS="|" read -r sso_url sso_region default_profile default_account_id default_role <<< "${ORGS[$session_name]}"
+
+  cat <<EOF >> "$OUTPUT_FILE"
+[sso-session ${session_name}]
+sso_start_url = ${sso_url}
+sso_region = ${sso_region}
 sso_registration_scopes = sso:account:access
 
-[default]
-sso_session = ${SSO_SESSION_NAME}
-sso_account_id = 253490790167
-sso_role_name = developer-tool-user
-region = ${SSO_REGION}
+EOF
+done
+
+# ------------------------
+# Write default profiles for each org
+# ------------------------
+echo "📝 Writing default profile blocks..."
+for session_name in "${!ORGS[@]}"; do
+  IFS="|" read -r _ sso_region default_profile default_account_id default_role <<< "${ORGS[$session_name]}"
+
+  cat <<EOF >> "$OUTPUT_FILE"
+[profile ${default_profile}]
+sso_session = ${session_name}
 
 EOF
+done
 
-# Append ~/.aws/config-static if it exists.
+# ------------------------
+# Append config-static if it exists
+# ------------------------
 if [[ -f "$CONFIG_STATIC_FILE" ]]; then
-  echo "Appending contents of $CONFIG_STATIC_FILE to $OUTPUT_FILE"
+  echo "📝 Copying static config from $CONFIG_STATIC_FILE"
   cat "$CONFIG_STATIC_FILE" >> "$OUTPUT_FILE"
-  # new line
   echo "" >> "$OUTPUT_FILE"
 else
-  echo "No static config file found at $CONFIG_STATIC_FILE"
+  echo "📝 No static config found at $CONFIG_STATIC_FILE"
 fi
 
-# -----------------------------------------------------
-# 3. Use SSO to list only the accounts this user can access.
-#    We explicitly pass "--profile default" to ensure we use
-#    the valid SSO login/access token that was just refreshed.
-# -----------------------------------------------------
+# ------------------------
+# Refresh and enumerate profiles dynamically
+# ------------------------
+for session_name in "${!ORGS[@]}"; do
+  IFS="|" read -r sso_url sso_region static_profile <<< "${ORGS[$session_name]}"
 
-echo "Getting SSO credentials..."
-SSO_ACCESS_TOKEN="$(aws-get-sso-access-token "${SSO_START_URL}")"
+  echo
+  echo "🔐 Logging in for $session_name (via profile: $static_profile)..."
+  aws-refresh-sso "$static_profile" || exit 1
 
-echo "Fetching accounts accessible by the current SSO user..."
-ACCOUNTS=$(aws sso list-accounts \
-  --access-token "${SSO_ACCESS_TOKEN}" \
-  --query "accountList[].accountId" \
-  --output text)
-
-if [[ -z "$ACCOUNTS" ]]; then
-  echo "No accessible accounts found or invalid SSO login session."
-  exit 1
-fi
-
-# -----------------------------------------------------
-# 4. For each account, retrieve all assigned roles (permission sets)
-#    and write one [profile <ACCOUNT>-<ROLE>] for each.
-# -----------------------------------------------------
-for ACCOUNT_ID in $ACCOUNTS; do
-  echo "  Getting roles for account: ${ACCOUNT_ID}..."
-  ROLES=$(aws sso list-account-roles \
-    --access-token "${SSO_ACCESS_TOKEN}" \
-    --account-id "${ACCOUNT_ID}" \
-    --query "roleList[].roleName" \
-    --output text 2>/dev/null)
-
-  if [[ -z "$ROLES" ]]; then
-    echo "    No roles found (or an error occurred)."
+  echo "🔑 Getting access token..."
+  SSO_ACCESS_TOKEN="$(aws-get-sso-access-token "${sso_url}")"
+  if [[ -z "$SSO_ACCESS_TOKEN" ]]; then
+    echo "❌ Failed to get SSO token for $session_name"
     continue
   fi
 
-  for ROLE_NAME in $ROLES; do
-    PROFILE_NAME="${ACCOUNT_ID}-${ROLE_NAME}"
-    echo "    Creating profile: [${PROFILE_NAME}]"
+  echo "📇 Listing accounts for $session_name..."
+  ACCOUNTS=$(aws sso list-accounts \
+    --region "$sso_region" \
+    --access-token "$SSO_ACCESS_TOKEN" \
+    --query "accountList[].accountId" \
+    --output text)
+
+  # export so bash -c can see them
+  export SSO_ACCESS_TOKEN sso_region session_name OUTPUT_FILE
+
+  # produce lines "ACCOUNT_ID ROLE" in parallel
+  printf "%s\n" $ACCOUNTS | \
+    xargs -P"$PARALLEL_JOBS" -I{} bash -c '
+      # note: $1 is the account ID substituted by xargs
+      acct="$1"
+      # list roles for that account
+      aws sso list-account-roles \
+        --access-token "$SSO_ACCESS_TOKEN" \
+        --region       "$sso_region" \
+        --account-id   "$acct" \
+        --query        "roleList[].roleName" \
+        --output       text \
+      | tr "\t" "\n" \
+      | sed "s|^|$acct |"
+    ' _ {} | while read -r ACCOUNT_ID ROLE; do
+    # skip the bootstrap/default if you want
+    if [[ "$ACCOUNT_ID" == "$DEFAULT_ACCOUNT" && "$ROLE" == "$DEFAULT_ROLE" ]]; then
+      continue
+    fi
+
+    PROFILE_NAME="${ACCOUNT_ID}-${ROLE}"
+    echo "    ➕ Writing profile: [$PROFILE_NAME]"
+
     cat <<EOF >> "$OUTPUT_FILE"
 [profile ${PROFILE_NAME}]
-sso_session = ${SSO_SESSION_NAME}
+sso_session    = ${session_name}
 sso_account_id = ${ACCOUNT_ID}
-sso_role_name = ${ROLE_NAME}
-region = ${SSO_REGION}
+sso_role_name  = ${ROLE}
+region         = ${sso_region}
 
 EOF
   done
 done
 
-# -----------------------------------------------------
-# 5. Cleanup environment credentials
-# -----------------------------------------------------
-
-echo
-echo "AWS CLI profiles successfully written to ${OUTPUT_FILE}."
+echo "✅ Finished writing AWS config to $OUTPUT_FILE"
