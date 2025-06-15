@@ -136,7 +136,9 @@ for session in "${!SSO_SESSIONS[@]}"; do
         --output text \
       | tr "\t" "\n" \
       | sed "s|^|$acct |"
-    ' _ {} | while read -r ACCOUNT_ID ROLE; do
+    ' _ {} | \
+    sort -k1,1 -k2,2 | \
+    while read -r ACCOUNT_ID ROLE; do
 
       PROFILE_NAME="${ACCOUNT_ID}-${ROLE}"
       echo "    ➕ Writing profile [$PROFILE_NAME]"
