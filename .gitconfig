@@ -10,4 +10,5 @@
 [user]
 	email = sean@seankleinjung.com
 	name = Sean Kleinjung
-	signingkey = 2ACA2B7F393F8404
+[push]
+	autoSetupRemote = true
