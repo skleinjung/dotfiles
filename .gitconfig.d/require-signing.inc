@@ -1,5 +1,3 @@
-[user]
-  email = sean@twindigital.io
 [commit]
   gpgsign = true
 [tag]

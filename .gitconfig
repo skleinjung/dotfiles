@@ -1,9 +1,9 @@
 [init]
   defaultBranch = main
 [user]
+  signingkey = key::sk-ssh-ed25519@openssh.com AAAAGnNrLXNzaC1lZDI1NTE5QG9wZW5zc2guY29tAAAAILrzJBmE4MaWzXBTPKOSttGtp8SJoiDY6WC4VDvuxG/7AAAABHNzaDo= sean@archon11-01 (yubikey green)
 	email = sean@seankleinjung.com
 	name = Sean Kleinjung
-  signingkey = key::sk-ssh-ed25519@openssh.com AAAAGnNrLXNzaC1lZDI1NTE5QG9wZW5zc2guY29tAAAAILrzJBmE4MaWzXBTPKOSttGtp8SJoiDY6WC4VDvuxG/7AAAABHNzaDo= sean@archon11-01 (yubikey green)
 [push]
   autoSetupRemote = true
 [gpg]
@@ -13,11 +13,5 @@
 [tag]
   gpgsign = false
 
-[includeIf "gitdir:**/appadap/**"]
-  path = ./.gitconfig.d/twin-digital
-[includeIf "gitdir:**/common-lift/**"]
-  path = ./.gitconfig.d/twin-digital
-[includeIf "gitdir:**/self-hosted-runners/**"]
-  path = ./.gitconfig.d/twin-digital
-[credential]
-	helper = "!f() { /home/vscode/.vscode-server/bin/7d842fb85a0275a4a8e4d7e040d2625abbf7f084/node /tmp/vscode-remote-containers-94535863-9971-4f56-8865-4899cc2a2b06.js git-credential-helper $*; }; f"
+[includeIf "gitdir:**/twd/**"]
+  path = ./.gitconfig.d/twin-digital.inc
