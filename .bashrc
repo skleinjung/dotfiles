@@ -153,8 +153,9 @@ fi
 
 # set git config
 if command -v git &> /dev/null; then
-  git config --global user.email "sean@thrashplay.com"
+  git config --global user.email "sean@skleinjung.com"
   git config --global user.name "Sean Kleinjung"
+  export GIT_PAGET=less
 fi
 
 # start ONE ssh agent per login
