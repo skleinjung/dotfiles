@@ -15,8 +15,10 @@
 
 [includeIf "gitdir:**/twd/**"]
   path = ./.gitconfig.d/twin-digital.inc
+[includeIf "gitdir:**/opus/**"]
+  path = ./.gitconfig.d/twin-digital.inc
 [includeIf "gitdir:**/rpg-content"]
   path = ./.gitconfig.d/thrashplay.inc
 
 [credential]
-	helper = "!f() { /home/vscode/.vscode-server/bin/618725e67565b290ba4da6fe2d29f8fa1d4e3622/node /tmp/vscode-remote-containers-3e4188fe-fd36-4c1c-b285-664cef6102bf.js git-credential-helper $*; }; f"
+	helper = "!f() { /home/sean/.vscode-server/bin/0958016b2af9f09bb4257e0df4a95e2f90590f9f/node /tmp/vscode-remote-containers-36c696e5-ab4d-4bca-958b-6d4cd563fdee.js git-credential-helper $*; }; f"
