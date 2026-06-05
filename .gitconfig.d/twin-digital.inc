@@ -1,5 +1,5 @@
 [user]
   email = sean@twindigital.io
 
-[includeIf "onbranch:main"]
+[include]
   path = require-signing.inc

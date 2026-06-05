@@ -1,5 +1,5 @@
 [user]
   email = sean@thrashplay.com
 
-[includeIf "onbranch:main"]
+[include]
   path = require-signing.inc

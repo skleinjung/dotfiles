@@ -1,7 +1,7 @@
 [init]
   defaultBranch = main
 [user]
-  signingkey = key::sk-ssh-ed25519@openssh.com AAAAGnNrLXNzaC1lZDI1NTE5QG9wZW5zc2guY29tAAAAILrzJBmE4MaWzXBTPKOSttGtp8SJoiDY6WC4VDvuxG/7AAAABHNzaDo= sean@archon11-01 (yubikey green)
+  signingkey = /home/sean/.ssh/id_ed25519.pub
 	email = sean@skleinjung.com
 	name = Sean Kleinjung
 [push]
@@ -19,6 +19,3 @@
   path = ./.gitconfig.d/twin-digital.inc
 [includeIf "gitdir:**/rpg-content"]
   path = ./.gitconfig.d/thrashplay.inc
-
-[credential]
-	helper = "!f() { /home/sean/.vscode-server/bin/0958016b2af9f09bb4257e0df4a95e2f90590f9f/node /tmp/vscode-remote-containers-36c696e5-ab4d-4bca-958b-6d4cd563fdee.js git-credential-helper $*; }; f"
