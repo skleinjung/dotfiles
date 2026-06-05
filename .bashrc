@@ -169,9 +169,5 @@ if [ "$?" == 2 ]; then
   fi
 fi
 
-if [ -n "$SSH_AUTH_SOCK" ] && ssh-add -L &>/dev/null 2>&1; then
-  ssh-add -L | grep '^ssh-ed25519' > ~/.ssh/github_key.pub
-fi
-
 # setup shadowing path
 export PATH=${HOME}/bin/${HOSTNAME}:${HOME}/bin:${PATH}
