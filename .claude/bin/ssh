@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# ssh shim for Claude Code — intercept its startup GitHub connectivity probe so it never reaches the
+# forwarded yubikey/FIDO agent (which otherwise prompts a touch on EVERY session start). On startup
+# Claude runs, unconditionally:
+#   ssh -T -o BatchMode=yes -o ConnectTimeout=2 -o StrictHostKeyChecking=yes git@github.com
+# We fake GitHub's success reply for exactly that call and pass every other ssh invocation through
+# untouched. Activated only for Claude via a PATH-prepend alias (see ~/.bash_aliases).
+#
+# Why this exists: https://github.com/anthropics/claude-code/issues/21108
+#                  https://github.com/anthropics/claude-code/issues/31555
+if [[ "$*" == *"-T"* && "$*" == *"BatchMode=yes"* && "$*" == *"ConnectTimeout=2"* \
+      && "$*" == *"StrictHostKeyChecking=yes"* && "$*" == *"git@github.com"* ]]; then
+  echo "Hi! You've successfully authenticated, but GitHub does not provide shell access." >&2
+  exit 1
+fi
+exec /usr/bin/ssh "$@"

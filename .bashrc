@@ -171,3 +171,4 @@ fi
 
 # setup shadowing path
 export PATH=${HOME}/bin/${HOSTNAME}:${HOME}/bin:${PATH}
+
