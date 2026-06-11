@@ -141,6 +141,23 @@ __bash_prompt() {
 __bash_prompt
 export PROMPT_DIRTRIM=4
 
+# Prompt warning when vended workspace credentials are stalled — only active in containers that
+# mount the credential shelf (agent workspace / admin sidecar); a no-op everywhere else.
+# Plain name = vend loop stalled; trailing '?' = status heartbeat stale (loop not running).
+# See /workspace/.devcontainer/README.md.
+if [ -d /creds ]; then
+  __creds_ps1() {
+    local f bad="" now=$(date +%s)
+    for f in /creds/status/*; do
+      [ -e "$f" ] || return 0
+      case "$(<"$f")" in ok*) ;; *) bad+="${f##*/} " ;; esac
+      [ $(( now - $(stat -c %Y "$f") )) -le 300 ] || bad+="${f##*/}? "
+    done
+    [ -z "$bad" ] || printf '\001\033[1;31m\002⚠ creds:%s\001\033[0m\002 ' "${bad% }"
+  }
+  PS1='$(__creds_ps1)'"$PS1"
+fi
+
 # activate NVM
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
