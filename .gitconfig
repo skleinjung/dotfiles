@@ -9,13 +9,32 @@
 [gpg]
   format = ssh
 [commit]
-  gpgsign = false
+  gpgsign = true
 [tag]
-  gpgsign = false
+  gpgsign = true
 
-[includeIf "gitdir:**/twd/**"]
+# twin digital — selected by remote org, not folder name, so any clone or worktree
+# of a github.com/twin-digital repo gets this identity regardless of where it lives.
+# (One line per URL form: HTTPS, SCP-style SSH, ssh:// — git matches the literal string.)
+[includeIf "hasconfig:remote.*.url:https://github.com/twin-digital/**"]
   path = ./.gitconfig.d/twin-digital.inc
-[includeIf "gitdir:**/opus/**"]
+[includeIf "hasconfig:remote.*.url:git@github.com:twin-digital/**"]
   path = ./.gitconfig.d/twin-digital.inc
-[includeIf "gitdir:**/rpg-content"]
+[includeIf "hasconfig:remote.*.url:ssh://git@github.com/twin-digital/**"]
+  path = ./.gitconfig.d/twin-digital.inc
+
+# thrashplay
+[includeIf "hasconfig:remote.*.url:https://github.com/thrashplay/**"]
   path = ./.gitconfig.d/thrashplay.inc
+[includeIf "hasconfig:remote.*.url:git@github.com:thrashplay/**"]
+  path = ./.gitconfig.d/thrashplay.inc
+[includeIf "hasconfig:remote.*.url:ssh://git@github.com/thrashplay/**"]
+  path = ./.gitconfig.d/thrashplay.inc
+
+# pegasuspad
+[includeIf "hasconfig:remote.*.url:https://github.com/pegasuspad/**"]
+  path = ./.gitconfig.d/pegasuspad.inc
+[includeIf "hasconfig:remote.*.url:git@github.com:pegasuspad/**"]
+  path = ./.gitconfig.d/pegasuspad.inc
+[includeIf "hasconfig:remote.*.url:ssh://git@github.com/pegasuspad/**"]
+  path = ./.gitconfig.d/pegasuspad.inc
