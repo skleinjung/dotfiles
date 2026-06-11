@@ -53,6 +53,8 @@ if aws-get-sso-access-token "$sso_start_url" &>/dev/null; then
   echo "✅ Profile '$profile_name' is already authenticated."
 else
   echo "🔁 SSO token missing or expired. Logging in for '$profile_name'..."
-  aws sso login --profile "$profile_name"
+  # AWS_SSO_USE_DEVICE_CODE=1 (set in environments without a reachable localhost callback, e.g.
+  # the admin sidecar) switches to the device-code flow.
+  aws sso login --profile "$profile_name" ${AWS_SSO_USE_DEVICE_CODE:+--use-device-code}
   echo "✅ Refreshed SSO credentials for '$profile_name'."
 fi
