@@ -7,6 +7,11 @@ set -euo pipefail
 
 CONFIG_FILE="$HOME/.aws/config"
 
+if [[ ! -f "$CONFIG_FILE" ]]; then
+  echo "❌ AWS config not found at '$CONFIG_FILE'. Run 'aws-generate-profiles', or run this where SSO profiles are configured." >&2
+  exit 1
+fi
+
 # we cannot use `aws configure get` to read `sso-session` values, so we use a custom `get_config_value` helper
 # see: https://github.com/aws/aws-cli/issues/8730
 # Usage: get_config_value "<section-name>" "<key>"
@@ -31,10 +36,12 @@ if [[ -z "$profile_name" ]]; then
   exit 1
 fi
 
-# Resolve sso_start_url from the profile by looking up the associated sso_session block
-sso_session=$(aws configure get profile."$profile_name".sso_session)
+# Resolve sso_start_url from the profile by looking up the associated sso_session block.
+# `aws configure get` exits non-zero when the key is absent; tolerate that so the guard
+# below reports it instead of `set -e` aborting the script silently.
+sso_session=$(aws configure get profile."$profile_name".sso_session) || sso_session=""
 if [[ -z "$sso_session" ]]; then
-  echo "❌ Profile '$profile_name' does not define an sso_session." >&2
+  echo "❌ Profile '$profile_name' does not define an sso_session (is the profile name correct?)." >&2
   exit 1
 fi
 
