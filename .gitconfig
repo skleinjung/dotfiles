@@ -2,7 +2,7 @@
   defaultBranch = main
 [user]
   signingkey = /home/sean/.ssh/id_ed25519.pub
-	email = sean@skleinjung.com
+	email = sean@seankleinjung.com
 	name = Sean Kleinjung
 [push]
   autoSetupRemote = true
@@ -38,3 +38,5 @@
   path = ./.gitconfig.d/pegasuspad.inc
 [includeIf "hasconfig:remote.*.url:ssh://git@github.com/pegasuspad/**"]
   path = ./.gitconfig.d/pegasuspad.inc
+[rebase]
+	gpgsign = true
