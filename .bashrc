@@ -143,15 +143,24 @@ export PROMPT_DIRTRIM=4
 
 # Prompt warning when vended workspace credentials are stalled — only active in containers that
 # mount the credential shelf (agent workspace / admin sidecar); a no-op everywhere else.
-# Plain name = vend loop stalled; trailing '?' = status heartbeat stale (loop not running).
+# Plain name = vend loop stalled; trailing '!' = token expired. Validity is read from the
+# 'expires=' field in each status file, not file mtime (shelves heartbeat at different cadences).
 # See /workspace/.devcontainer/README.md.
 if [ -d /creds ]; then
   __creds_ps1() {
-    local f bad="" now=$(date +%s)
+    local f c exp bad="" now=$(date +%s)
     for f in /creds/status/*; do
       [ -e "$f" ] || return 0
-      case "$(<"$f")" in ok*) ;; *) bad+="${f##*/} " ;; esac
-      [ $(( now - $(stat -c %Y "$f") )) -le 300 ] || bad+="${f##*/}? "
+      c="$(<"$f")"
+      case "$c" in
+        ok*)
+          exp="${c#*expires=}"; exp="${exp%% *}"
+          if [ "$exp" != "$c" ] && { ! exp=$(date -d "$exp" +%s 2>/dev/null) || [ "$now" -ge "$exp" ]; }; then
+            bad+="${f##*/}! "
+          fi
+          ;;
+        *) bad+="${f##*/} " ;;
+      esac
     done
     [ -z "$bad" ] || printf '\001\033[1;31m\002⚠ creds:%s\001\033[0m\002 ' "${bad% }"
   }
