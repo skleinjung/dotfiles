@@ -1,5 +1,13 @@
 # Documentation and Comments
 
+## Avoid Awkward Phrases
+
+Avoid the following awkward-to-read AI words and phrases, especially in permanent 
+documentation:
+
+- substrate
+- "<something> does X -- never Y"
+
 ## Describe the final state, not the path to it
 
 Comments, docs, commit bodies, and PR descriptions must describe the change as it
