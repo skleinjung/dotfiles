@@ -1,5 +1,18 @@
 # Documentation and Comments
 
+## Keep code comments terse
+
+Extended prose fatigues reviewers, will not be read, drifts from implementation, and obfuscates the code itself.
+
+- DO write inline code comments that are short, generally no more than one line
+- Assume competent readers who the code, application, and common coding practices
+- DO NOT make justifications or litigate review feedback in comments.
+- DO NOT write mutliple sentences or paragraphs of explanatory prose. If this feels necessary, the code is too complex. 
+
+Note that the prohibition on longer comments here applies to inline comments, and not JSDoc/TSDoc
+or similar doc comments. These may be longer, but still should probably be limited to no more than
+1-3 short paragraphs. Code examples serve a much stronger documentation purpose than prose in most cases.
+
 ## Avoid Awkward Phrases
 
 Avoid the following awkward-to-read AI words and phrases, especially in permanent 
