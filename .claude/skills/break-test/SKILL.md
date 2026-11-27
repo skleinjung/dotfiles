@@ -21,22 +21,24 @@ Test-first work prevents most tests that cannot fail. It does not prevent behavi
 ## Scope and limits
 
 - One package or module for each run.
-- One run at a time in a working tree. Each run changes source files, so two runs in one tree give wrong results.
+- One run at a time in a working tree. Each run changes source files, so two runs in one tree give wrong results. The runner refuses a second run in the same tree.
+- Runs in different working trees can go at the same time. Each run keeps all its files in `.superpowers/break-test/` of its own tree. Do not write a script, a list of mutations, or a result to a place that other runs share, such as a temporary directory of the session.
+- Do not run in the background and do not wait for a later event. Run in the foreground, in parts. See "Runner".
 - A commit hook or a push hook that lints the tree fails while a mutation is in place. Do not commit or push other work from that tree during a run.
 - A mutation is temporary. A run commits test files only. A source file changes for good only to correct a real defect that a new test shows.
 - The targets are all the things that the tests protect: source files, and also data files, configuration, and scripts in a package manifest when a requirement names them. A package with almost no logic has most of its mutations in its data.
-- Run each command from the root of the repository. The path in `git checkout -- <path>` is relative to it.
+- Run each command from the root of the working tree. Each path of a mutation is relative to it.
 - Time: one mutation costs one run of the tests. About 100 mutations of a package with a fast suite take about 30 minutes.
 
 ## Steps
 
 1. **Read.** Read the requirements of the package (specifications, design, README), all of the source, and all of the tests.
 2. **List the mutations before you run one.** Write one mutation for each behavior that a requirement or an explicit branch of the code stands for. Give each mutation an ID that does not change during the run, a file, and a short description. See "Mutations". If a mutation in the list is not valid, make it again and keep its ID. If you find a missed behavior later, add a mutation and say that it is outside the first list.
-3. **Run each mutation.** See "One mutation". For more than about 10 mutations, write a script. See "Script".
+3. **Run each mutation.** Use the runner. See "Runner". "One mutation" says what the runner does for each one, and what you do by hand for a mutation that the runner cannot express.
 4. **Record the first-pass totals.** Tried, killed, survived, for each source file. Do this before you change a test. These numbers are the measurement. A number that is taken after the tests change has no value.
 5. **Make the inventory of the tests.** See "Inventory".
 6. **Close the gaps.** See "Survivors".
-7. **Finish.** Run the suite three times to find a test that fails some of the time. Run the checks of the repository. Confirm that `git status` shows test files only. Commit the tests.
+7. **Finish.** Run the suite three times to find a test that fails some of the time. Run the checks of the repository. Run `verify` of the runner: it must say that the protected files are equal to the state at `init`. Confirm that `git status` shows test files only. Commit the tests.
 
 ## Mutations
 
@@ -65,35 +67,62 @@ Not a mutation: the removal of a full function, a syntax error, a changed export
    - **KILLED**: one or more tests fail by an assertion about the behavior. Record the name of each test that fails. For more than three, record three names and the number of the others.
    - **SURVIVED**: no test fails.
    - A timeout counts as a kill only when the behavior is "this never occurs". A failure in the setup of a test is not a kill.
-5. Restore the file with `git checkout -- <path>`, with one literal path. Do this before the next mutation.
+5. Restore the file to its content at `init`, and prove it: the git blob ID of each protected file is equal to its ID at `init`. Do this before the next mutation. The runner does it. By hand, run `verify --restore`. Do not use `git checkout -- <path>` to restore: see "Why not `git checkout`".
 
 Never commit a mutation.
 
-## Script
+## Runner
 
-A script holds the list of mutations as data and does the same five steps for each one.
+`scripts/mutants.mjs` in the folder of this skill runs a list of mutations. Do not write your own script. Call the runner by its absolute path, from the root of the working tree.
 
-```js
-// One entry: the ID, the file, the exact text to find, the replacement, a note.
-const mutations = [
-  { id: 'S1', file: 'pkg/src/server.ts', find: 'writeHead(200', replace: 'writeHead(201', note: 'status of /snapshot' },
-]
+The runner needs a git working tree. It keeps its state and its results in `.superpowers/break-test/` of the working tree, and the original content of each file in the object database of git. Make sure that git ignores `.superpowers/`. Put the list of mutations in that folder also.
 
-for (const m of mutations) {
-  const before = readFileSync(m.file, 'utf8')
-  const after = before.replace(m.find, m.replace)
-  if (after === before) { record(m, 'NOT APPLIED'); continue }
-  writeFileSync(m.file, after)
-  const valid = isValid(m.file)            // type check, or a parse of a data file
-  const failed = valid ? runTests() : []   // names of the tests that fail
-  record(m, !valid ? 'NOT VALID' : failed.length > 0 ? 'KILLED' : 'SURVIVED', failed)
-  execFileSync('git', ['checkout', '--', m.file]) // m.file comes from the fixed list above
-}
+**The list** is a JSON file. One entry has the ID, the file, the exact text to find, the replacement, and a note:
+
+```json
+[{ "id": "S1", "file": "pkg/src/server.ts", "find": "writeHead(200", "replace": "writeHead(201", "note": "status of /snapshot" }]
 ```
 
-- `NOT APPLIED` and `NOT VALID` are not results. Correct the entry and run it again.
-- Keep the full record of each mutation and each test that failed. The inventory uses it.
-- Keep the script out of the repository.
+The text to find must be in the file exactly one time. Make it longer until it is, or add `"occurrence": 2` for the second place.
+
+**The commands:**
+
+```bash
+RUNNER=<folder of this skill>/scripts/mutants.mjs
+
+# 1. One time. Stores each file as a git blob, records the tree state, and confirms that the tests pass with no mutation.
+node $RUNNER init --file pkg/src/server.ts --file pkg/src/cli.ts \
+  --test "cd pkg && pnpm exec vitest run" [--valid "cd pkg && pnpm exec tsc --noEmit"] \
+  [--lock-file /tmp/heavy.lock] [--test-timeout 120]
+
+# 2. In parts. Each call stops after its time budget (default 420 seconds) and prints where to continue.
+node $RUNNER run --mutants .superpowers/break-test/mutants.json [--from 40]
+
+# 3. At any time, and at the end. Exit code 3 means that a protected file differs.
+node $RUNNER verify [--restore]
+
+# 4. The totals for each file, and each mutation that was not killed.
+node $RUNNER report
+```
+
+**What the runner guarantees:**
+
+- **The tree is restored, with proof.** At `init`, the runner stores the content of each file to mutate as a blob (`git hash-object -w`), and records the git blob ID of each file below the protected roots. The protected roots are the folders of the mutated files, or the folders that `--protect` gives. Test files are not protected, because you add tests during the run. One ID, the tree state, stands for all the protected files. After each mutation, the runner writes the blob over the file (`git cat-file blob`) and computes each ID again. If one file differs, the run stops with exit code 3 and names the file. `init`, `run`, and `verify` print the tree state.
+- **The content at `init` is what comes back.** This includes a change that was not committed. `git checkout` would give the committed version.
+- **A run that is stopped leaves no mutation.** The runner restores the file when it gets a signal. If the process is killed, the next `run` or `verify` restores the file first and says so.
+- **One run in a tree.** A second `run` in the same tree stops with exit code 4.
+- **A shared lock for the tests.** With `--lock-file`, each run of the tests and of the validity check takes that lock with `flock`, for that run only. Use it when the repository limits heavy commands. If the wait for the lock ends, the runner restores the file and stops with exit code 4: report it with the output of `lslocks`, and do not try again.
+- **Results survive.** Each result is one line in `results.jsonl`, written when its mutation is complete. A later `run` skips a mutation that has a result. Use `--redo`, or `--only <ID>`, to run one again.
+
+**Why not `git checkout`.** `git checkout -- <path>` writes the index, so it takes the lock file `index.lock` of the working tree. A different git process in the same tree takes the same lock for a moment: `git status` does, and an agent, a tool of the editor, or a reviewer runs it at any time. The restore then fails with "Unable to create index.lock: File exists", and the mutation stays in the file. In a test with two loops of `git status`, 94 of 400 restores failed. The runner reads and writes only the object database, and it sets `GIT_OPTIONAL_LOCKS=0`, so it takes no index lock. In the same test, 0 of 400 restores failed.
+
+**Results:** `KILLED` (the tests fail; the record has the end of the test output, so you can find the names of the tests), `SURVIVED`, `TIMEOUT` (the tests did not end in `--test-timeout` seconds: decide by the rule in "One mutation" if it is a kill), `NOT VALID` (the validity check fails), and `NOT APPLIED` (the text to find is absent or not unique). `NOT APPLIED` and `NOT VALID` are not results: correct the entry and run it again.
+
+**Rules:**
+
+- A call must end before the time limit of your shell tool. The default budget of 420 seconds is for a limit of 10 minutes. Call `run` again with the `--from` value that it prints.
+- If you change a protected file on purpose (a correction of a real defect), run `init` again. The results of the earlier mutations stay valid only for the files that did not change.
+- The record of each mutation and its output is the input of the inventory. Keep it until the report is written.
 
 ## Inventory
 
@@ -155,8 +184,10 @@ A run that stops after the measurement gives items 1 to 6.
 - Give it the path of this skill, the path of the package, and the paths of the requirements.
 - Tell it to record the first-pass totals before it changes a test.
 - Use a model of the middle tier. The work is long and methodical.
-- Start one run for each package, one at a time in a working tree.
+- Start one run for each package, one at a time in a working tree. Runs in different working trees can go at the same time.
+- Tell it the lock file, if the repository limits heavy commands.
 - Do not commit, push, or run other tests in that tree until the subagent reports.
+- When it reports, run `verify` of the runner in that tree yourself. Do not trust the report alone.
 
 ## Common mistakes
 
@@ -166,6 +197,8 @@ A run that stops after the measurement gives items 1 to 6.
 | Do only the pass by mutation                         | It does not show a test that never fails. Do the inventory.   |
 | Count a timeout or a setup failure as a kill         | A kill is an assertion about the behavior.                    |
 | Write mutations after you read the test names        | List them from the requirements and the code, before you run one. |
-| Leave a mutation in place                            | Restore after each one. Confirm with `git status` at the end. |
+| Leave a mutation in place                            | Use the runner. Run `verify` at the end, and confirm with `git status`. |
+| Write your own script, or keep files in a shared place | Use the runner. Its files stay in `.superpowers/break-test/` of the tree. |
+| Run the mutations in the background                  | Run in the foreground, in parts. A session that waits can lose its tree. |
 | Write a test for each survivor                       | A mutation with the same result is an accepted survivor.      |
 | Change the source to make a test easier              | Change the source only for a real defect.                     |
